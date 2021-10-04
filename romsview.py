@@ -247,7 +247,7 @@ class Ui(QMainWindow):
         if evt.inaxes != self.mplcanvas.axes:
             return
 
-        self.vSlice = VsliceDialog()
+        self.vSlice = VsliceDialog(title=self.plotSelector.currentText())
         self.vSlice.setGeometry(2000, 60, 800, 400)
         self.vSlice.show()
 
@@ -360,10 +360,11 @@ class Ui(QMainWindow):
         self.mplcanvas.draw()
 
 
-class VsliceDialog(QDialog, Ui):
-    def __init__(self, *args, **kwargs):
-        Ui.__init__(*args, **kwargs)
-        self.setWindowTitle("ROMSView Vertical Slice")
+class VsliceDialog(QDialog):
+    def __init__(self, title='ROMSView dialog', *args, **kwargs):
+        # Ui.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
+        self.setWindowTitle(title)
 
     def vslice(self):
         # leaving some hints on how to expand lon/lat dims for vslices
