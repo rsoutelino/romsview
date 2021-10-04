@@ -27,6 +27,7 @@ class AppState:
     cbar: str = "viridis"
     filetype: str = "grd"
     clicked_points: list = field(default_factory=list)
+    current_file: str = ""
 
     @property
     def current_slice(self):

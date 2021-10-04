@@ -202,6 +202,7 @@ class Ui(QMainWindow):
 
     def onOpenFile(self, filename):
         self.status.showMessage(f"Current file: {filename}")
+        self._state.current_file = filename
         self._load_dataset(filename)
         self._state.filetype = detect_roms_file(filename)
         # getting a representative var based on settings.rep_var
@@ -270,15 +271,14 @@ class Ui(QMainWindow):
                 self.mplcanvas.axes.plot(
                     *pairs2lists(self._state.clicked_points), 'k', zorder=9)
                 self.mplcanvas.draw()
-                self._state.clicked_points.clear()
-                dialog = VsliceDialog(title="Vertical Slice")
+                dialog = VsliceDialog(
+                    parent=self, title="Vertical Slice")
                 dialog.setGeometry(2000, 60, 800, 400)
                 dialog.show()
                 self.dialogs.append(dialog)
 
         if 'Tseries' in self.plotSelector.currentText():
-            self._state.clicked_points.clear()
-            dialog = TseriesDialog(title="Time Series")
+            dialog = TseriesDialog(parent=self, title="Time Series")
             dialog.setGeometry(2000, 60, 800, 400)
             dialog.show()
             self.dialogs.append(dialog)
@@ -395,9 +395,10 @@ class Ui(QMainWindow):
 
 
 class VsliceDialog(Ui, QDialog):
-    def __init__(self, title='ROMSView dialog', *args, **kwargs):
+    def __init__(self, parent=None, title='ROMSView dialog', *args, **kwargs):
         # super().__init__(*args, **kwargs)
         QDialog.__init__(self, *args, **kwargs)
+        self.parent = parent
         self.setWindowTitle(title)
         self.generalLayout = QHBoxLayout()
         self.centralWidget = QWidget(self)
@@ -407,38 +408,62 @@ class VsliceDialog(Ui, QDialog):
         # self._createMenu()
         # self._createToolBar()
         self._createSideBar()
+        self.plotSelector.setDisabled(True)
+        self.levSelector.setDisabled(True)
         self._createMplCanvas()
         self._createStatusBar()
+        self.status.showMessage(f"Current file: {self._state.current_file}")
 
     def vslice(self):
-        # leaving some hints on how to expand lon/lat dims for vslices
-        # pcolormesh(
-        #     self._state.ds.lat_rho.isel(xi_rho=0).expand_dims(
-        #         {"s_rho": range(self._state.ds.dims["s_rho"])}, 0
-        #     ),
-        #     self._state.ds.z_rho.isel(ocean_time=0, xi_rho=0),
-        #     self._state.dstemp.isel(ocean_time=0, xi_rho=0),
-        # )
-        # coords can't be masked or have nans (z_rho), so need to work that out
+        # this is a bit dirty, needs to be generalized - just copy paste from
+        # old pyromsgui
+        p1 = self.parent._state.clicked_points[0]
+        p2 = self.parent._state.clicked_points[1]
+        xi_rho = self.parent._state.ds.xi_rho.values
+        eta_rho = self.parent._state.ds.eta_rho.values
+        xaxis = eta_or_xi(p1, p2)
+        var = self.parent._state.var
 
+        # getting time index from parent plot
+        for key, val in self.parent._state.current_slice.items():
+            if "time" in key:
+                sel = {key: val}
+                self._state.da = self.parent._state._ds[var].sel(**sel)
+                self._state.za = self.parent._state._ds['z_rho'].sel(**sel)
+                # TODO open a dialog to load grid if z_rho not available, and
+                # compute zlevels (clm files or outputs that did not save z_rho)
+
+        # computing diagonal
+        dl = (np.gradient(xi_rho).mean() + np.gradient(eta_rho).mean()) / 2
+        siz = int(np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2) / dl)
+        xs = np.linspace(p1[0], p2[0], siz)
+        ys = np.linspace(p1[1], p2[1], siz)
+
+        # computing nearest points to diagonal
+        vsec, zsec = [], []
+        for idx in range(xs.size):
+            line, col = near2d(xi_rho, eta_rho, xs[idx], ys[idx])
+            vsec.append(self._state.da.sel(
+                eta_rho=line, xi_rho=col, method='nearest').values.transpose())
+            zsec.append(self._state.da.sel(
+                eta_rho=line, xi_rho=col, method='nearest').values.transpose())
+
+        xs = np.atleast_2d(xs).repeat(self._state.da.s_rho.size, axis=0)
+        ys = np.atleast_2d(ys).repeat(self._state.da.s_rho.size, axis=0)
+
+    def onDestroy(self):
+        # dont even know if this is the name, replace with the real destroy event
+        # from PyQt
+        #    - remove clicked points from parent state
+        #    - removed plotted points from parents mplcanvas
+
+        self.parent._state.clicked_points.clear()
         pass
 
 
-class TseriesDialog(Ui, QDialog):
-    def __init__(self, title='ROMSView dialog', *args, **kwargs):
-        # super().__init__(*args, **kwargs)
-        QDialog.__init__(self, *args, **kwargs)
-        self.setWindowTitle(title)
-        self.generalLayout = QHBoxLayout()
-        self.centralWidget = QWidget(self)
-        self.setCentralWidget(self.centralWidget)
-        self.centralWidget.setLayout(self.generalLayout)
-
-        # self._createMenu()
-        # self._createToolBar()
-        self._createSideBar()
-        self._createMplCanvas()
-        self._createStatusBar()
+class TseriesDialog(VsliceDialog):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def tseries(self):
         pass
@@ -466,7 +491,7 @@ def last2d(da):
 
 
 def pairs2lists(pairs):
-    """Transforms list of pairs of [(x1, y1), (x2, y2), ...] 
+    """Transforms list of pairs of [(x1, y1), (x2, y2), ...]
        in lists of coords [x1, x2, ...], [y1, y2, ...]
     """
     x, y = [], []
@@ -475,6 +500,33 @@ def pairs2lists(pairs):
         y.append(pair[1])
 
     return x, y
+
+
+def eta_or_xi(p1, p2):
+    """Chooses preferred X axis based on alignment of two points that 
+       define a transect
+    """
+    if np.abs(p1[0] - p2[0]) >= np.abs(p1[1] - p2[1]):
+        return 'xi_rho'
+    else:
+        return 'eta_rho'
+
+
+def near2d(x, y, x0, y0):
+    """
+    Find the indexes of the grid point that is
+    nearest a chosen (x0, y0).
+    Usage: line, col = near2d(x, y, x0, y0)
+    """
+    dx = np.abs(x - x0)
+    dx = dx / dx.max()
+    dy = np.abs(y - y0)
+    dy = dy / dy.max()
+    dn = dx + dy
+    fn = np.where(dn == dn.min())
+    line = int(fn[0])
+    col = int(fn[1])
+    return line, col
 
 
 def not_found_dialog(message="Coming soon..."):
