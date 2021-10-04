@@ -53,7 +53,6 @@ class Ui(QMainWindow):
         self.setWindowTitle("ROMSView")
         self._state = AppState()
         self.generalLayout = QHBoxLayout()
-        # Set the central widget
         self.centralWidget = QWidget(self)
         self.setCentralWidget(self.centralWidget)
         self.centralWidget.setLayout(self.generalLayout)
@@ -84,52 +83,68 @@ class Ui(QMainWindow):
                 self.openFile, f"*_{key}*.nc"))
 
     def _createSideBar(self):
-        layout = QVBoxLayout()
+        self.sideBarLayout = QVBoxLayout()
 
+        self._createPlotSelector()
+        self._createVarSelector()
+        self._createTimeSelector()
+        self._createLevSelector()
+        self._createCbarSelector()
+        self._createAlphaSelector()
+        self._createRangeBox()
+
+        widget = QWidget()
+        widget.setLayout(self.sideBarLayout)
+        widget.setFixedWidth(185)
+        self.generalLayout.addWidget(widget)
+
+    def _createPlotSelector(self):
         self.plotSelector = QComboBox()
         self.plotSelector.setToolTip(
             "What to plot when clicking horizontal slice point (s)")
-        self.plotSelector.addItems(["Timeserie on click", "Vslice on click"])
+        self.plotSelector.addItems(["Timeseries on click", "Vslice on click"])
         self.plotSelector.setDisabled(True)
-        layout.addWidget(self.plotSelector)
+        self.sideBarLayout.addWidget(self.plotSelector)
 
+    def _createVarSelector(self):
         self.varSelector = QComboBox()
         self.varSelector.setToolTip("Variables")
         self.varSelector.addItem("Variables")
         self.varSelector.setDisabled(True)
         self.varSelector.activated[str].connect(self.toggle_var)
-        layout.addWidget(self.varSelector)
+        self.sideBarLayout.addWidget(self.varSelector)
 
+    def _createTimeSelector(self):
         self.timeSelector = QComboBox()
         self.timeSelector.setToolTip("Times")
         self.timeSelector.addItem("Times")
         self.timeSelector.setDisabled(True)
         self.timeSelector.activated[str].connect(self.toggle_time)
-        layout.addWidget(self.timeSelector)
+        self.sideBarLayout.addWidget(self.timeSelector)
 
+    def _createLevSelector(self):
         self.levSelector = QComboBox()
         self.levSelector.setToolTip("Levels")
         self.levSelector.addItem("Levels")
         self.levSelector.setDisabled(True)
         self.levSelector.activated[str].connect(self.toggle_lev)
-        layout.addWidget(self.levSelector)
+        self.sideBarLayout.addWidget(self.levSelector)
 
-        # plot_types = QComboBox()
-        # plot_types.addItems(["contourf", "pcolormesh", "scatter"])
-        # layout.addWidget(plot_types)
-
+    def _createCbarSelector(self):
         self.cbarSelector = QComboBox()
         self.cbarSelector.setToolTip("Colorbars")
         self.cbarSelector.addItems(["viridis", "jet", "RdBu_r"])
         self.cbarSelector.activated[str].connect(self.set_colorbar)
         self.cbarSelector.setDisabled(True)
-        layout.addWidget(self.cbarSelector)
+        self.sideBarLayout.addWidget(self.cbarSelector)
 
+    def _createAlphaSelector(self):
         alpha = QSlider(Qt.Horizontal)
         alpha.setValue(100)
         alpha.valueChanged[int].connect(self.set_alpha)
-        layout.addWidget(alpha)
+        self.sideBarLayout.addWidget(alpha)
 
+    def _createRangeBox(self):
         self.rangeBox = QGroupBox()
         vmin_label = QLabel("Vmin")
         vmax_label = QLabel("Vmax")
@@ -144,14 +159,8 @@ class Ui(QMainWindow):
         self.rangeBox.setFixedHeight(100)
         self.vmin.returnPressed.connect(self.set_range)
         self.vmax.returnPressed.connect(self.set_range)
-        layout.addWidget(self.rangeBox)
+        self.sideBarLayout.addWidget(self.rangeBox)
         self.rangeBox.setDisabled(True)
-
-        widget = QWidget()
-        widget.setLayout(layout)
-        widget.setFixedWidth(185)
-
-        self.generalLayout.addWidget(widget)
 
     def _createMplCanvas(self):
         self.mplcanvas = MplCanvas(self, width=5, height=4, dpi=100)
@@ -247,9 +256,19 @@ class Ui(QMainWindow):
         if evt.inaxes != self.mplcanvas.axes:
             return
 
-        self.vSlice = VsliceDialog(title=self.plotSelector.currentText())
-        self.vSlice.setGeometry(2000, 60, 800, 400)
-        self.vSlice.show()
+        if 'Vslice' in self.plotSelector.currentText():
+            dialog = VsliceDialog(title="Vertical Slice")
+
+        if 'Tseries' in self.plotSelector.currentText():
+            dialog = TseriesDialog(title="Time Series")
+
+        dialog.setGeometry(2000, 60, 800, 400)
+        dialog.show()
+
+        try:
+            self.dialogs.append(dialog)
+        except AttributeError:
+            self.dialogs = [dialog]
 
     def _reset_range(self, vmin, vmax):
         self._state.vmin = vmin
@@ -360,11 +379,21 @@ class Ui(QMainWindow):
         self.mplcanvas.draw()
 
 
-class VsliceDialog(QDialog):
+class VsliceDialog(Ui, QDialog):
     def __init__(self, title='ROMSView dialog', *args, **kwargs):
-        # Ui.__init__(self, *args, **kwargs)
-        super().__init__(*args, **kwargs)
+        # super().__init__(*args, **kwargs)
+        QDialog.__init__(self, *args, **kwargs)
         self.setWindowTitle(title)
+        self.generalLayout = QHBoxLayout()
+        self.centralWidget = QWidget(self)
+        self.setCentralWidget(self.centralWidget)
+        self.centralWidget.setLayout(self.generalLayout)
+
+        # self._createMenu()
+        # self._createToolBar()
+        self._createSideBar()
+        self._createMplCanvas()
+        self._createStatusBar()
 
     def vslice(self):
         # leaving some hints on how to expand lon/lat dims for vslices
@@ -377,6 +406,26 @@ class VsliceDialog(QDialog):
         # )
         # coords can't be masked or have nans (z_rho), so need to work that out
 
+        pass
+
+
+class TseriesDialog(Ui, QDialog):
+    def __init__(self, title='ROMSView dialog', *args, **kwargs):
+        # super().__init__(*args, **kwargs)
+        QDialog.__init__(self, *args, **kwargs)
+        self.setWindowTitle(title)
+        self.generalLayout = QHBoxLayout()
+        self.centralWidget = QWidget(self)
+        self.setCentralWidget(self.centralWidget)
+        self.centralWidget.setLayout(self.generalLayout)
+
+        # self._createMenu()
+        # self._createToolBar()
+        self._createSideBar()
+        self._createMplCanvas()
+        self._createStatusBar()
+
+    def tseries(self):
         pass
 
 
