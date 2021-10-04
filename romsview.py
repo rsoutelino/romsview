@@ -257,18 +257,25 @@ class Ui(QMainWindow):
             return
 
         if 'Vslice' in self.plotSelector.currentText():
-            dialog = VsliceDialog(title="Vertical Slice")
+            if len(self._state.clicked_points) > 2:
+                self._state.clicked_points.append(evt)
+            else:
+                self._state.clear_clicked_points()
+                dialog = VsliceDialog(title="Vertical Slice")
+                dialog.setGeometry(2000, 60, 800, 400)
+                dialog.show()
 
         if 'Tseries' in self.plotSelector.currentText():
             dialog = TseriesDialog(title="Time Series")
-
-        dialog.setGeometry(2000, 60, 800, 400)
-        dialog.show()
+            dialog.setGeometry(2000, 60, 800, 400)
+            dialog.show()
 
         try:
             self.dialogs.append(dialog)
         except AttributeError:
             self.dialogs = [dialog]
+        except:
+            return
 
     def _reset_range(self, vmin, vmax):
         self._state.vmin = vmin
