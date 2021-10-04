@@ -247,7 +247,9 @@ class Ui(QMainWindow):
         if evt.inaxes != self.mplcanvas.axes:
             return
 
-        print(f"{self.plotSelector.currentText()} chosen", evt)
+        self.vSlice = VsliceDialog()
+        self.vSlice.setGeometry(2000, 60, 800, 400)
+        self.vSlice.show()
 
     def _reset_range(self, vmin, vmax):
         self._state.vmin = vmin
