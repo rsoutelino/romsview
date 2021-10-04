@@ -1,19 +1,10 @@
 #! /usr/bin/env python3
-import sys
-from os.path import basename
-from functools import partial
-
-import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import xarray as xr
-
-# import cartopy.crs as ccrs
-
-mpl.use("Qt5Agg")
-
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPalette, QColor
+from settings import *
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt5agg import (
+    FigureCanvasQTAgg,
+    NavigationToolbar2QT as NavigationToolbar,
+)
 from PyQt5.QtWidgets import (
     QMainWindow,
     QApplication,
@@ -32,14 +23,20 @@ from PyQt5.QtWidgets import (
     QLabel,
     QFileDialog,
 )
+from PyQt5.QtGui import QPalette, QColor
+from PyQt5.QtCore import Qt
+import sys
+from os.path import basename
+from functools import partial
 
-from matplotlib.backends.backend_qt5agg import (
-    FigureCanvasQTAgg,
-    NavigationToolbar2QT as NavigationToolbar,
-)
-from matplotlib.figure import Figure
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import xarray as xr
 
-from settings import *
+# import cartopy.crs as ccrs
+
+mpl.use("Qt5Agg")
 
 
 class MplCanvas(FigureCanvasQTAgg):
@@ -83,10 +80,18 @@ class Ui(QMainWindow):
         tools = QToolBar()
         self.addToolBar(tools)
         for key in RomsNCFiles.__dataclass_fields__.keys():
-            tools.addAction(key.upper(), partial(self.openFile, f"*_{key}*.nc"))
+            tools.addAction(key.upper(), partial(
+                self.openFile, f"*_{key}*.nc"))
 
     def _createSideBar(self):
         layout = QVBoxLayout()
+
+        self.plotSelector = QComboBox()
+        self.plotSelector.setToolTip(
+            "What to plot when clicking horizontal slice point (s)")
+        self.plotSelector.addItems(["Timeserie on click", "Vslice on click"])
+        self.plotSelector.setDisabled(True)
+        layout.addWidget(self.plotSelector)
 
         self.varSelector = QComboBox()
         self.varSelector.setToolTip("Variables")
@@ -150,9 +155,11 @@ class Ui(QMainWindow):
 
     def _createMplCanvas(self):
         self.mplcanvas = MplCanvas(self, width=5, height=4, dpi=100)
+        cid = self.mplcanvas.mpl_connect(
+            'button_press_event', self.timeseries_or_vslice)
         self.init_plot()
 
-        # Create toolbar, passing canvas as first parament, parent (self, the MainWindow) as second.
+        # Create toolbar, passing canvas as first parameter, parent (self, the MainWindow) as second.
         toolbar = NavigationToolbar(self.mplcanvas, self)
 
         layout = QVBoxLayout()
@@ -213,6 +220,7 @@ class Ui(QMainWindow):
         if hasattr(self._plot, "set_cmap"):
             self.cbarSelector.setEnabled(True)
             self.rangeBox.setEnabled(True)
+            self.plotSelector.setEnabled(True)
 
             if (
                 hasattr(self._state, "vmin") and hasattr(self._state, "vmax")
@@ -221,7 +229,8 @@ class Ui(QMainWindow):
                     mpl.colors.Normalize(self._state.vmin, self._state.vmax)
                 )
             else:
-                self._reset_range(np.nanmin(self._state.da), np.nanmax(self._state.da))
+                self._reset_range(np.nanmin(self._state.da),
+                                  np.nanmax(self._state.da))
 
             self.set_colorbar(cbar=self.cbarSelector.currentText())
         else:
@@ -234,18 +243,11 @@ class Ui(QMainWindow):
         self._update_times()
         self._update_levels()
 
-    def vslice(self):
-        # leaving some hints on how to expand lon/lat dims for vslices
-        # pcolormesh(
-        #     self._state.ds.lat_rho.isel(xi_rho=0).expand_dims(
-        #         {"s_rho": range(self._state.ds.dims["s_rho"])}, 0
-        #     ),
-        #     self._state.ds.z_rho.isel(ocean_time=0, xi_rho=0),
-        #     self._state.dstemp.isel(ocean_time=0, xi_rho=0),
-        # )
-        # coords can't be masked or have nans (z_rho), so need to work that out
+    def timeseries_or_vslice(self, evt):
+        if evt.inaxes != self.mplcanvas.axes:
+            return
 
-        pass
+        print(f"{self.plotSelector.currentText()} chosen", evt)
 
     def _reset_range(self, vmin, vmax):
         self._state.vmin = vmin
@@ -268,7 +270,8 @@ class Ui(QMainWindow):
             ):
                 self.timeSelector.setEnabled(True)
                 self.timeSelector.clear()
-                times = [numpydatetime2str(t) for t in self._state.ds[dim].values]
+                times = [numpydatetime2str(t)
+                         for t in self._state.ds[dim].values]
                 self.timeSelector.addItems(times)
                 current = numpydatetime2str(self._state.da[dim].values)
                 self.timeSelector.setCurrentText(current)
@@ -287,7 +290,8 @@ class Ui(QMainWindow):
                 self.levSelector.clear()
                 levels = [str(l) for l in self._state.ds[dim].values]
                 self.levSelector.addItems(levels)
-                self.levSelector.setCurrentText(str(self._state.da[dim].values))
+                self.levSelector.setCurrentText(
+                    str(self._state.da[dim].values))
                 break
 
             self.levSelector.setDisabled(True)
@@ -309,7 +313,8 @@ class Ui(QMainWindow):
             if "time" in key:
                 _slice[key] = self.timeSelector.currentText()
 
-                self._state.da = last2d(self._state.ds[self._state.var].sel(**_slice))
+                self._state.da = last2d(
+                    self._state.ds[self._state.var].sel(**_slice))
                 self.hslice()
                 break
 
@@ -319,7 +324,8 @@ class Ui(QMainWindow):
             if "s_rho" in key:
                 _slice[key] = self.levSelector.currentText()
 
-                self._state.da = last2d(self._state.ds[self._state.var].sel(**_slice))
+                self._state.da = last2d(
+                    self._state.ds[self._state.var].sel(**_slice))
                 self.hslice()
                 break
 
@@ -336,7 +342,8 @@ class Ui(QMainWindow):
         except:
             vmax = self._state.vmax
 
-        self._plot.set_norm(mpl.colors.Normalize(self._state.vmin, self._state.vmax))
+        self._plot.set_norm(mpl.colors.Normalize(
+            self._state.vmin, self._state.vmax))
         self.mplcanvas.draw()
 
     def set_colorbar(self, cbar):
@@ -349,6 +356,25 @@ class Ui(QMainWindow):
     def set_alpha(self, val):
         self._plot.set_alpha(val / 100)
         self.mplcanvas.draw()
+
+
+class VsliceDialog(QDialog, Ui):
+    def __init__(self, *args, **kwargs):
+        Ui.__init__(*args, **kwargs)
+        self.setWindowTitle("ROMSView Vertical Slice")
+
+    def vslice(self):
+        # leaving some hints on how to expand lon/lat dims for vslices
+        # pcolormesh(
+        #     self._state.ds.lat_rho.isel(xi_rho=0).expand_dims(
+        #         {"s_rho": range(self._state.ds.dims["s_rho"])}, 0
+        #     ),
+        #     self._state.ds.z_rho.isel(ocean_time=0, xi_rho=0),
+        #     self._state.dstemp.isel(ocean_time=0, xi_rho=0),
+        # )
+        # coords can't be masked or have nans (z_rho), so need to work that out
+
+        pass
 
 
 def detect_roms_file(filepath):
