@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -26,7 +26,7 @@ class AppState:
     da: object = None
     cbar: str = "viridis"
     filetype: str = "grd"
-    clicked_points: list = []
+    clicked_points: list = field(default_factory=list)
 
     @property
     def current_slice(self):
@@ -43,9 +43,6 @@ class AppState:
     @property
     def var(self):
         return self.da.name
-
-    def clear_clicked_points(self):
-        self.clicked_points = []
 
 
 # representative variable for each ROMS file

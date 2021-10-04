@@ -47,6 +47,8 @@ class MplCanvas(FigureCanvasQTAgg):
 
 
 class Ui(QMainWindow):
+    dialogs = []
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -102,7 +104,7 @@ class Ui(QMainWindow):
         self.plotSelector = QComboBox()
         self.plotSelector.setToolTip(
             "What to plot when clicking horizontal slice point (s)")
-        self.plotSelector.addItems(["Timeseries on click", "Vslice on click"])
+        self.plotSelector.addItems(["Tseries on click", "Vslice on click"])
         self.plotSelector.setDisabled(True)
         self.sideBarLayout.addWidget(self.plotSelector)
 
@@ -256,26 +258,32 @@ class Ui(QMainWindow):
         if evt.inaxes != self.mplcanvas.axes:
             return
 
+        self._state.clicked_points.append([evt.xdata, evt.ydata])
+        self.mplcanvas.axes.plot(evt.xdata, evt.ydata,
+                                 'wo', markeredgecolor='k', zorder=10)
+        self.mplcanvas.draw()
+
         if 'Vslice' in self.plotSelector.currentText():
-            if len(self._state.clicked_points) > 2:
-                self._state.clicked_points.append(evt)
+            if len(self._state.clicked_points) < 2:
+                return
             else:
-                self._state.clear_clicked_points()
+                self.mplcanvas.axes.plot(
+                    *pairs2lists(self._state.clicked_points), 'k', zorder=9)
+                self.mplcanvas.draw()
+                self._state.clicked_points.clear()
                 dialog = VsliceDialog(title="Vertical Slice")
                 dialog.setGeometry(2000, 60, 800, 400)
                 dialog.show()
+                self.dialogs.append(dialog)
 
         if 'Tseries' in self.plotSelector.currentText():
+            self._state.clicked_points.clear()
             dialog = TseriesDialog(title="Time Series")
             dialog.setGeometry(2000, 60, 800, 400)
             dialog.show()
-
-        try:
             self.dialogs.append(dialog)
-        except AttributeError:
-            self.dialogs = [dialog]
-        except:
-            return
+
+        return
 
     def _reset_range(self, vmin, vmax):
         self._state.vmin = vmin
@@ -455,6 +463,18 @@ def last2d(da):
     slc = {d: s for d, s in zip(da.dims, slc)}
 
     return da.isel(**slc)
+
+
+def pairs2lists(pairs):
+    """Transforms list of pairs of [(x1, y1), (x2, y2), ...] 
+       in lists of coords [x1, x2, ...], [y1, y2, ...]
+    """
+    x, y = [], []
+    for pair in pairs:
+        x.append(pair[0])
+        y.append(pair[1])
+
+    return x, y
 
 
 def not_found_dialog(message="Coming soon..."):
