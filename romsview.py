@@ -275,6 +275,7 @@ class Ui(QMainWindow):
                     parent=self, title="Vertical Slice")
                 dialog.setGeometry(2000, 60, 800, 400)
                 dialog.show()
+                dialog.vslice()
                 self.dialogs.append(dialog)
 
         if 'Tseries' in self.plotSelector.currentText():
@@ -399,6 +400,7 @@ class VsliceDialog(Ui, QDialog):
         # super().__init__(*args, **kwargs)
         QDialog.__init__(self, *args, **kwargs)
         self.parent = parent
+        self._state = AppState()
         self.setWindowTitle(title)
         self.generalLayout = QHBoxLayout()
         self.centralWidget = QWidget(self)
@@ -412,15 +414,16 @@ class VsliceDialog(Ui, QDialog):
         self.levSelector.setDisabled(True)
         self._createMplCanvas()
         self._createStatusBar()
-        self.status.showMessage(f"Current file: {self._state.current_file}")
+        self.status.showMessage(
+            f"Current file: {self.parent._state.current_file}")
 
     def vslice(self):
         # this is a bit dirty, needs to be generalized - just copy paste from
         # old pyromsgui
         p1 = self.parent._state.clicked_points[0]
         p2 = self.parent._state.clicked_points[1]
-        xi_rho = self.parent._state.ds.xi_rho.values
-        eta_rho = self.parent._state.ds.eta_rho.values
+        xi_rho, eta_rho = np.meshgrid(self.parent._state.ds.xi_rho.values,
+                                      self.parent._state.ds.eta_rho.values)
         xaxis = eta_or_xi(p1, p2)
         var = self.parent._state.var
 
@@ -428,28 +431,40 @@ class VsliceDialog(Ui, QDialog):
         for key, val in self.parent._state.current_slice.items():
             if "time" in key:
                 sel = {key: val}
-                self._state.da = self.parent._state._ds[var].sel(**sel)
-                self._state.za = self.parent._state._ds['z_rho'].sel(**sel)
+                self._state.da = self.parent._state.ds[var].sel(**sel)
+                self._state.za = self.parent._state.ds['z_rho'].sel(**sel)
                 # TODO open a dialog to load grid if z_rho not available, and
                 # compute zlevels (clm files or outputs that did not save z_rho)
 
         # computing diagonal
-        dl = (np.gradient(xi_rho).mean() + np.gradient(eta_rho).mean()) / 2
+        dl = (np.gradient(xi_rho)[1].mean() +
+              np.gradient(eta_rho)[0].mean()) / 2
         siz = int(np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2) / dl)
         xs = np.linspace(p1[0], p2[0], siz)
         ys = np.linspace(p1[1], p2[1], siz)
 
         # computing nearest points to diagonal
-        vsec, zsec = [], []
         for idx in range(xs.size):
             line, col = near2d(xi_rho, eta_rho, xs[idx], ys[idx])
-            vsec.append(self._state.da.sel(
-                eta_rho=line, xi_rho=col, method='nearest').values.transpose())
-            zsec.append(self._state.da.sel(
-                eta_rho=line, xi_rho=col, method='nearest').values.transpose())
+            try:
+                vsec = np.hstack((vsec, self._state.da.isel(
+                    eta_rho=line, xi_rho=col, ocean_time=0).values[:, None]))
+                zsec = np.hstack((zsec, self._state.za.isel(
+                    eta_rho=line, xi_rho=col, ocean_time=0).values[:, None]))
+            except:
+                vsec = self._state.da.isel(
+                    eta_rho=line, xi_rho=col, ocean_time=0).values[:, None]
+                zsec = self._state.za.isel(
+                    eta_rho=line, xi_rho=col, ocean_time=0).values[:, None]
 
         xs = np.atleast_2d(xs).repeat(self._state.da.s_rho.size, axis=0)
         ys = np.atleast_2d(ys).repeat(self._state.da.s_rho.size, axis=0)
+
+        # print(type(xs), type(zsec), type(vsec))
+        print(xs.shape, zsec.shape, vsec.shape)
+        self._reset_mpl_axes()
+        self.mplcanvas.axes.contourf(xs, zsec, vsec, 20)
+        self.mplcanvas.draw()
 
     def onDestroy(self):
         # dont even know if this is the name, replace with the real destroy event
