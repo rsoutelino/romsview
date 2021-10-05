@@ -32,12 +32,9 @@ class AppState:
     @property
     def current_slice(self):
         sliced = {}
-        slice_str = self.da._title_for_slice(truncate=np.inf)
-        if not slice_str:
-            return sliced
-
-        for slc in slice_str.split(","):
-            sliced[slc.split("=")[0].strip()] = slc.split("=")[1].strip()
+        for dim, coord in self.da.coords.items():
+            if coord.size == 1:
+                sliced[dim] = coord.values
 
         return sliced
 
