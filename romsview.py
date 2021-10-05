@@ -418,15 +418,8 @@ class VsliceDialog(Ui, QDialog):
             f"Current file: {self.parent._state.current_file}")
 
     def vslice(self):
-        # this is a bit dirty, needs to be generalized - just copy paste from
-        # old pyromsgui
-        p1 = self.parent._state.clicked_points[0]
-        p2 = self.parent._state.clicked_points[1]
-        xi_rho, eta_rho = np.meshgrid(self.parent._state.ds.xi_rho.values,
-                                      self.parent._state.ds.eta_rho.values)
-        xaxis = eta_or_xi(p1, p2)
+        self._reset_mpl_axes()
         var = self.parent._state.var
-
         # getting time index from parent plot
         for key, val in self.parent._state.current_slice.items():
             if "time" in key:
@@ -436,34 +429,11 @@ class VsliceDialog(Ui, QDialog):
                 # TODO open a dialog to load grid if z_rho not available, and
                 # compute zlevels (clm files or outputs that did not save z_rho)
 
-        # computing diagonal
-        dl = (np.gradient(xi_rho)[1].mean() +
-              np.gradient(eta_rho)[0].mean()) / 2
-        siz = int(np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2) / dl)
-        xs = np.linspace(p1[0], p2[0], siz)
-        ys = np.linspace(p1[1], p2[1], siz)
+        xsec, zsec, vsec = self._extract_slice()
 
-        # computing nearest points to diagonal
-        for idx in range(xs.size):
-            line, col = near2d(xi_rho, eta_rho, xs[idx], ys[idx])
-            try:
-                vsec = np.hstack((vsec, self._state.da.isel(
-                    eta_rho=line, xi_rho=col, ocean_time=0).values[:, None]))
-                zsec = np.hstack((zsec, self._state.za.isel(
-                    eta_rho=line, xi_rho=col, ocean_time=0).values[:, None]))
-            except:
-                vsec = self._state.da.isel(
-                    eta_rho=line, xi_rho=col, ocean_time=0).values[:, None]
-                zsec = self._state.za.isel(
-                    eta_rho=line, xi_rho=col, ocean_time=0).values[:, None]
+        print(xsec.shape, zsec.shape, vsec.shape)
 
-        xs = np.atleast_2d(xs).repeat(self._state.da.s_rho.size, axis=0)
-        ys = np.atleast_2d(ys).repeat(self._state.da.s_rho.size, axis=0)
-
-        # print(type(xs), type(zsec), type(vsec))
-        print(xs.shape, zsec.shape, vsec.shape)
-        self._reset_mpl_axes()
-        self.mplcanvas.axes.contourf(xs, zsec, vsec, 20)
+        self.mplcanvas.axes.contourf(xsec, zsec, vsec, 20)
         self.mplcanvas.draw()
 
     def onDestroy(self):
@@ -474,6 +444,36 @@ class VsliceDialog(Ui, QDialog):
 
         self.parent._state.clicked_points.clear()
         pass
+
+    def _extract_slice(self):
+        p1 = self.parent._state.clicked_points[0]
+        p2 = self.parent._state.clicked_points[1]
+        xi_rho, eta_rho = np.meshgrid(self.parent._state.ds.xi_rho.values,
+                                      self.parent._state.ds.eta_rho.values)
+        xaxis = eta_or_xi(p1, p2)
+
+        xs, ys = get_segment(xi_rho, eta_rho, p1, p2)
+
+        # finding nearest depths and data values to segment points
+        for idx in range(xs.size):
+            line, col = near2d(xi_rho, eta_rho, xs[idx], ys[idx])
+            try:
+                vsec = np.hstack((vsec, self._state.da.isel(
+                    eta_rho=line, xi_rho=col).values[:, None]))
+                zsec = np.hstack((zsec, self._state.za.isel(
+                    eta_rho=line, xi_rho=col).values[:, None]))
+            except:
+                vsec = self._state.da.isel(
+                    eta_rho=line, xi_rho=col).values[:, None]
+                zsec = self._state.za.isel(
+                    eta_rho=line, xi_rho=col).values[:, None]
+
+        if xaxis == 'xi_rho':
+            xsec = np.atleast_2d(xs).repeat(self._state.da.s_rho.size, axis=0)
+        else:
+            xsec = np.atleast_2d(ys).repeat(self._state.da.s_rho.size, axis=0)
+
+        return xsec, zsec, vsec
 
 
 class TseriesDialog(VsliceDialog):
@@ -542,6 +542,26 @@ def near2d(x, y, x0, y0):
     line = int(fn[0])
     col = int(fn[1])
     return line, col
+
+
+def get_segment(xg, yg, p1, p2):
+    """Creates a segment from p1 to p2 based on average resolution of 
+       xg, yg 2D generic grid
+
+    Args:
+        xg, yg [numpy 2D arrays]: x, y grid coordinates
+        p1, p2 [list or tuple]: x, y pair of start and end of the segment 
+
+    Returns:
+        xs, ys [numpy 1D arrays]: x, y coordinates of the segment
+    """
+    dl = (np.gradient(xg)[1].mean() +
+          np.gradient(yg)[0].mean()) / 2
+    size = int(np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2) / dl)
+    xs = np.linspace(p1[0], p2[0], size)
+    ys = np.linspace(p1[1], p2[1], size)
+
+    return xs, ys
 
 
 def not_found_dialog(message="Coming soon..."):
