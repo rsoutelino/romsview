@@ -103,9 +103,11 @@ class Ui(QMainWindow):
     def _createPlotSelector(self):
         self.plotSelector = QComboBox()
         self.plotSelector.setToolTip(
-            "What to plot when clicking horizontal slice point (s)")
-        self.plotSelector.addItems(["Tseries on click", "Vslice on click"])
+            "What to do when clicking horizontal slice point (s)")
+        self.plotSelector.addItems(
+            ["MPL Toolbar", "Tseries on click", "Vslice on click"])
         self.plotSelector.setDisabled(True)
+        self.plotSelector.activated[str].connect(self.toggle_plot)
         self.sideBarLayout.addWidget(self.plotSelector)
 
     def _createVarSelector(self):
@@ -166,15 +168,14 @@ class Ui(QMainWindow):
 
     def _createMplCanvas(self):
         self.mplcanvas = MplCanvas(self, width=5, height=4, dpi=100)
-        cid = self.mplcanvas.mpl_connect(
-            'button_press_event', self.timeseries_or_vslice)
+        self.cid = None  # initialize variable to reprensent mpl_connect
         self.init_plot()
 
         # Create toolbar, passing canvas as first parameter, parent (self, the MainWindow) as second.
-        toolbar = NavigationToolbar(self.mplcanvas, self)
+        self.mpltoolbar = NavigationToolbar(self.mplcanvas, self)
 
         layout = QVBoxLayout()
-        layout.addWidget(toolbar)
+        layout.addWidget(self.mpltoolbar)
         layout.addWidget(self.mplcanvas)
 
         # Create a placeholder widget to hold our toolbar and canvas.
@@ -332,6 +333,17 @@ class Ui(QMainWindow):
                 break
 
             self.levSelector.setDisabled(True)
+
+    def toggle_plot(self, plot_type):
+        if plot_type in ["Tseries on click", "Vslice on click"]:
+            if not self.cid:
+                self.cid = self.mplcanvas.mpl_connect(
+                    'button_press_event', self.timeseries_or_vslice)
+            self.mpltoolbar.setDisabled(True)
+        else:
+            self.mplcanvas.mpl_disconnect(self.cid)
+            self.cid = None
+            self.mpltoolbar.setEnabled(True)
 
     def toggle_var(self, var):
         _slice = {}
