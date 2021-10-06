@@ -208,7 +208,7 @@ class Ui(QMainWindow):
         # getting a representative var based on settings.rep_var
         rep_var = getattr(REP_VAR, self._state.filetype)
         self._state.da = last2d(self._state.ds[rep_var])
-        self.hslice(var_changed=True)
+        self.plot(var_changed=True)
 
     def _reset_mpl_axes(self):
         for ax in self.mplcanvas.figure.axes:
@@ -225,7 +225,7 @@ class Ui(QMainWindow):
     def _load_dataset(self, filename):
         self._state.ds = xr.open_dataset(filename)
 
-    def hslice(self, var_changed=False):
+    def plot(self, var_changed=False):
         self._reset_mpl_axes()
 
         self._plot = self._state.da.plot(ax=self.mplcanvas.axes)
@@ -260,27 +260,27 @@ class Ui(QMainWindow):
             return
 
         self._state.clicked_points.append([evt.xdata, evt.ydata])
-        self.mplcanvas.axes.plot(evt.xdata, evt.ydata,
-                                 'wo', markeredgecolor='k', zorder=10)
+        self._state.vslice_ref.append(self.mplcanvas.axes.plot(evt.xdata, evt.ydata,
+                                                               'wo', markeredgecolor='k', zorder=10))
         self.mplcanvas.draw()
 
         if 'Vslice' in self.plotSelector.currentText():
             if len(self._state.clicked_points) < 2:
                 return
             else:
-                self.mplcanvas.axes.plot(
-                    *pairs2lists(self._state.clicked_points), 'k', zorder=9)
+                self._state.vslice_ref.append(self.mplcanvas.axes.plot(
+                    *pairs2lists(self._state.clicked_points), 'k', zorder=9))
                 self.mplcanvas.draw()
                 dialog = VsliceDialog(
                     parent=self, title="Vertical Slice")
-                dialog.setGeometry(2000, 60, 800, 400)
+                dialog.setGeometry(2000, 60, 900, 500)
                 dialog.show()
-                dialog.vslice()
+                dialog.plot()
                 self.dialogs.append(dialog)
 
         if 'Tseries' in self.plotSelector.currentText():
             dialog = TseriesDialog(parent=self, title="Time Series")
-            dialog.setGeometry(2000, 60, 800, 400)
+            dialog.setGeometry(2000, 60, 900, 500)
             dialog.show()
             self.dialogs.append(dialog)
 
@@ -342,7 +342,7 @@ class Ui(QMainWindow):
                 _slice[dim] = val
 
         self._state.da = last2d(self._state.ds[var].sel(**_slice))
-        self.hslice(var_changed=True)
+        self.plot(var_changed=True)
 
     def toggle_time(self, timestamp):
         _slice = self._state.current_slice.copy()
@@ -352,7 +352,7 @@ class Ui(QMainWindow):
 
                 self._state.da = last2d(
                     self._state.ds[self._state.var].sel(**_slice))
-                self.hslice()
+                self.plot()
                 break
 
     def toggle_lev(self, lev):
@@ -363,7 +363,7 @@ class Ui(QMainWindow):
 
                 self._state.da = last2d(
                     self._state.ds[self._state.var].sel(**_slice))
-                self.hslice()
+                self.plot()
                 break
 
     def set_range(self):
@@ -401,14 +401,13 @@ class VsliceDialog(Ui, QDialog):
         QDialog.__init__(self, *args, **kwargs)
         self.parent = parent
         self._state = AppState()
+        self._state.ds = self.parent._state.ds
+        self._state.filetype = self.parent._state.filetype
         self.setWindowTitle(title)
         self.generalLayout = QHBoxLayout()
         self.centralWidget = QWidget(self)
         self.setCentralWidget(self.centralWidget)
         self.centralWidget.setLayout(self.generalLayout)
-
-        # self._createMenu()
-        # self._createToolBar()
         self._createSideBar()
         self.plotSelector.setDisabled(True)
         self.levSelector.setDisabled(True)
@@ -417,33 +416,54 @@ class VsliceDialog(Ui, QDialog):
         self.status.showMessage(
             f"Current file: {self.parent._state.current_file}")
 
-    def vslice(self):
+    def plot(self, var_changed=False):
         self._reset_mpl_axes()
-        var = self.parent._state.var
+        if not var_changed:
+            var = self.parent._state.var
         # getting time index from parent plot
         for key, val in self.parent._state.current_slice.items():
             if "time" in key:
                 sel = {key: val}
-                self._state.da = self.parent._state.ds[var].sel(**sel)
-                self._state.za = self.parent._state.ds['z_rho'].sel(**sel)
+                self._state.da = self._state.ds[var].sel(**sel)
+                self._state.za = self._state.ds['z_rho'].sel(**sel)
                 # TODO open a dialog to load grid if z_rho not available, and
                 # compute zlevels (clm files or outputs that did not save z_rho)
 
-        xsec, zsec, vsec = self._extract_slice()
+        xsec, zsec, vsec, xaxis = self._extract_slice()
 
-        print(xsec.shape, zsec.shape, vsec.shape)
+        self._plot = self.mplcanvas.axes.contourf(xsec, zsec, vsec, 20)
+        self.mplcanvas.axes.set_ylabel('z_rho')
+        self.mplcanvas.axes.set_xlabel(xaxis)
+        self.mplcanvas.axes.figure.colorbar(self._plot)
 
-        self.mplcanvas.axes.contourf(xsec, zsec, vsec, 20)
+        self.cbarSelector.setEnabled(True)
+        self.rangeBox.setEnabled(True)
+        self.plotSelector.setDisabled(True)
+
+        if (
+            hasattr(self._state, "vmin") and hasattr(self._state, "vmax")
+        ) and not var_changed:
+            self._plot.set_norm(
+                mpl.colors.Normalize(self._state.vmin, self._state.vmax)
+            )
+        else:
+            self._reset_range(np.nanmin(self._state.da),
+                              np.nanmax(self._state.da))
+
         self.mplcanvas.draw()
+        self._update_vars()
+        self._update_times()
 
-    def onDestroy(self):
-        # dont even know if this is the name, replace with the real destroy event
-        # from PyQt
-        #    - remove clicked points from parent state
-        #    - removed plotted points from parents mplcanvas
-
+    def closeEvent(self, event):
         self.parent._state.clicked_points.clear()
-        pass
+
+        for plot in self.parent._state.vslice_ref:
+            for pl in plot:
+                pl.remove()
+
+        self.parent.mplcanvas.draw()
+
+        self.parent._state.vslice_ref.clear()
 
     def _extract_slice(self):
         p1 = self.parent._state.clicked_points[0]
@@ -473,7 +493,7 @@ class VsliceDialog(Ui, QDialog):
         else:
             xsec = np.atleast_2d(ys).repeat(self._state.da.s_rho.size, axis=0)
 
-        return xsec, zsec, vsec
+        return xsec, zsec, vsec, xaxis
 
 
 class TseriesDialog(VsliceDialog):
