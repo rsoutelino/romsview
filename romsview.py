@@ -283,6 +283,7 @@ class Ui(QMainWindow):
             dialog = TseriesDialog(parent=self, title="Time Series")
             dialog.setGeometry(2000, 60, 900, 500)
             dialog.show()
+            dialog.plot()
             self.dialogs.append(dialog)
 
         return
@@ -509,11 +510,82 @@ class VsliceDialog(Ui, QDialog):
 
 
 class TseriesDialog(VsliceDialog):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, parent=None, title='ROMSView dialog', *args, **kwargs):
+        # super().__init__(*args, **kwargs)
+        QDialog.__init__(self, *args, **kwargs)
+        self.parent = parent
+        self._set_state()
+        self._set_da()
+        self.setWindowTitle(title)
+        self.generalLayout = QHBoxLayout()
+        self.centralWidget = QWidget(self)
+        self.setCentralWidget(self.centralWidget)
+        self.centralWidget.setLayout(self.generalLayout)
+        self._createSideBar()
+        self.plotSelector.setDisabled(True)
+        self.levSelector.setDisabled(True)
+        self._createMplCanvas()
+        self._createStatusBar()
+        self.status.showMessage(
+            f"Current file: {self.parent._state.current_file}")
 
-    def tseries(self):
-        pass
+    def _set_state(self):
+        """Grabing some state variables from parent"""
+        self._state = AppState()
+        self._state.ds = self.parent._state.ds
+        self._state.filetype = self.parent._state.filetype
+        self._state.clicked_points = self.parent._state.clicked_points
+
+    def _set_da(self):
+
+        for key, val in self.parent._state.current_slice.items():
+            if key == 's_rho':
+                sel = {key: val}
+                break
+            else:
+                sel = {}
+
+        xi_rho, eta_rho = np.meshgrid(self._state.ds.xi_rho.values,
+                                      self._state.ds.eta_rho.values)
+
+        sel['eta_rho'], sel['xi_rho'] = near2d(
+            xi_rho,
+            eta_rho,
+            self._state.clicked_points[0][0],
+            self._state.clicked_points[0][1])
+
+        self._state.da = self._state.ds[self.parent._state.var].sel(**sel)
+
+    def plot(self, var_changed=False):
+        self._reset_mpl_axes()
+        if not var_changed:
+            try:
+                var = self._state.var
+            except:
+                var = self.parent._state.var
+
+        self._plot = self._state.da.plot(ax=self.mplcanvas.axes)
+
+        self.mplcanvas.draw()
+        self._update_vars()
+        self._update_times()
+
+        if 's_rho' in self._state.da.coords.keys():
+            self.levSelector.setEnabled(True)
+            self._update_levels()
+        else:
+            self.levSelector.setDisabled(True)
+
+    def closeEvent(self, event):
+        self.parent._state.clicked_points.clear()
+
+        for plot in self.parent._state.vslice_ref:
+            for pl in plot:
+                pl.remove()
+
+        self.parent.mplcanvas.draw()
+
+        self.parent._state.vslice_ref.clear()
 
 
 def detect_roms_file(filepath):
