@@ -137,7 +137,8 @@ class Ui(QMainWindow):
     def _createCbarSelector(self):
         self.cbarSelector = QComboBox()
         self.cbarSelector.setToolTip("Colorbars")
-        self.cbarSelector.addItems(["viridis", "jet", "RdBu_r"])
+        self.cbarSelector.addItems(
+            ["viridis", "cividis", "inferno", "jet", "turbo", "RdBu_r", "twilight", "Reds", "Blues", "terrain"])
         self.cbarSelector.activated[str].connect(self.set_colorbar)
         self.cbarSelector.setDisabled(True)
         self.sideBarLayout.addWidget(self.cbarSelector)
